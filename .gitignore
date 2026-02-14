@@ -1,0 +1,3 @@
+resources/cluster-issuer-prod.yml
+resources/argocd-ingress.yml
+.claude/
