@@ -35,16 +35,21 @@ command_exists() {
 
 # ============== USAGE ==============
 usage() {
-    echo "Usage: sudo $0 [--task <k3s|helm|cert-manager|argocd>]"
+    echo "Usage: $0 [--server <IP>] [--user <user>] [--task <k3s|helm|cert-manager|argocd>]"
+    echo ""
+    echo "Options:"
+    echo "  --server <IP>    Target remote server IP (bootstraps over SSH instead of locally)"
+    echo "  --user <user>    SSH user for remote server (required with --server)"
+    echo "  --task <name>    Run a specific task only"
     echo ""
     echo "Run without --task to execute all tasks sequentially."
     echo ""
     echo "Examples:"
-    echo "  sudo $0                       # Run all tasks"
-    echo "  sudo $0 --task k3s            # Install K3s only"
-    echo "  sudo $0 --task helm           # Install Helm only"
-    echo "  sudo $0 --task cert-manager   # Install cert-manager only"
-    echo "  sudo $0 --task argocd         # Install ArgoCD only"
+    echo "  sudo $0                                    # Run all tasks locally"
+    echo "  sudo $0 --task k3s                        # Install K3s only (local)"
+    echo "  $0 --server 192.168.1.10                  # Run all tasks on remote server"
+    echo "  $0 --server 192.168.1.10 --user ubuntu    # Remote with custom SSH user"
+    echo "  $0 --server 192.168.1.10 --task argocd    # Remote, single task"
     exit 1
 }
 
@@ -52,39 +57,77 @@ usage() {
 preflight_checks() {
     log_info "Running pre-flight checks..."
 
-    if [[ $EUID -ne 0 ]]; then
-        log_error "This script must be run as root or with sudo"
+    if [[ -n "$SERVER_IP" ]]; then
+        log_info "Remote mode: checking SSH connectivity to ${SERVER_USER}@${SERVER_IP}..."
+        if ! ssh -o ConnectTimeout=5 -o BatchMode=yes "${SERVER_USER}@${SERVER_IP}" exit 2>/dev/null; then
+            log_error "Cannot connect to ${SERVER_USER}@${SERVER_IP} via SSH. Ensure key-based auth is configured."
+        fi
+    else
+        if [[ $EUID -ne 0 ]]; then
+            log_error "This script must be run as root or with sudo (or use --server for remote mode)"
+        fi
     fi
 
     if [[ -z "${CLOUDFLARE_API_TOKEN:-}" ]]; then
         log_error "CLOUDFLARE_API_TOKEN is not set. Export it before running."
     fi
 
-    if [[ "$ACME_EMAIL" == "your-email@example.com" ]]; then
-        log_error "Please set your email address in config.env"
+    if [[ -z "${ACME_EMAIL:-}" ]]; then
+        log_error "ACME_EMAIL is not set. Add it to .envrc."
     fi
 
     log_success "Pre-flight checks passed"
 }
 
+# ============== REMOTE KUBECONFIG ==============
+setup_remote_kubeconfig() {
+    local tmpkube
+    tmpkube=$(mktemp /tmp/argocd-kubeconfig-XXXXXX)
+    ssh "${SERVER_USER}@${SERVER_IP}" 'sudo cat /etc/rancher/k3s/k3s.yaml' \
+        | sed "s|https://127.0.0.1:6443|https://${SERVER_IP}:6443|g" \
+        > "$tmpkube"
+    chmod 600 "$tmpkube"
+    export KUBECONFIG="$tmpkube"
+    log_info "Remote kubeconfig saved to $tmpkube"
+}
+
 # ============== MAIN ==============
 TASKS=(k3s helm cert-manager argocd)
 
-if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
+SERVER_IP=""
+SERVER_USER=""
+TASK=""
+
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        --help|-h)   usage ;;
+        --server)    SERVER_IP="$2";   shift 2 ;;
+        --user)      SERVER_USER="$2"; shift 2 ;;
+        --task)      TASK="$2";        shift 2 ;;
+        *)           echo "Unknown argument: $1"; usage ;;
+    esac
+done
+
+if [[ -n "$SERVER_IP" && -z "$SERVER_USER" ]]; then
+    echo "Error: --user is required when --server is specified"
     usage
 fi
 
+export SERVER_IP SERVER_USER
+
 preflight_checks
 
-if [[ "${1:-}" == "--task" ]]; then
-    if [[ -z "${2:-}" || ! -f "${SCRIPT_DIR}/tasks/${2}.sh" ]]; then
-        log_error "Task '${2:-}' not found"
+if [[ -n "$TASK" ]]; then
+    if [[ ! -f "${SCRIPT_DIR}/tasks/${TASK}.sh" ]]; then
+        log_error "Task '${TASK}' not found"
     fi
-    export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
-    source "${SCRIPT_DIR}/tasks/${2}.sh"
-elif [[ -n "${1:-}" ]]; then
-    echo "Unknown argument: $1"
-    usage
+    # For non-k3s tasks in remote mode, fetch kubeconfig upfront
+    if [[ -n "$SERVER_IP" && "$TASK" != "k3s" ]]; then
+        setup_remote_kubeconfig
+    elif [[ -z "$SERVER_IP" ]]; then
+        export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
+    fi
+    source "${SCRIPT_DIR}/tasks/${TASK}.sh"
 else
     echo ""
     echo "=========================================="

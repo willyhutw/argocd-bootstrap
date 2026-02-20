@@ -1,3 +1,27 @@
+if [[ -n "${SERVER_IP:-}" ]]; then
+    if ssh "${SERVER_USER}@${SERVER_IP}" 'command -v kubectl &>/dev/null && sudo kubectl get nodes &>/dev/null' 2>/dev/null; then
+        log_warn "K3s already installed on ${SERVER_IP}, skipping..."
+    else
+        log_info "Installing K3s on ${SERVER_IP}..."
+        ssh "${SERVER_USER}@${SERVER_IP}" 'curl -sfL https://get.k3s.io | sudo sh -'
+        log_info "Waiting for K3s to be ready on ${SERVER_IP}..."
+        sleep 10
+        until ssh "${SERVER_USER}@${SERVER_IP}" 'sudo kubectl get nodes &>/dev/null'; do
+            sleep 5
+        done
+        log_success "K3s installed on ${SERVER_IP}"
+    fi
+    # Fetch and patch kubeconfig for local use
+    tmpkube=$(mktemp /tmp/argocd-kubeconfig-XXXXXX)
+    ssh "${SERVER_USER}@${SERVER_IP}" 'sudo cat /etc/rancher/k3s/k3s.yaml' \
+        | sed "s|https://127.0.0.1:6443|https://${SERVER_IP}:6443|g" \
+        > "$tmpkube"
+    chmod 600 "$tmpkube"
+    export KUBECONFIG="$tmpkube"
+    log_info "Remote kubeconfig saved to $tmpkube"
+    return 0
+fi
+
 if command_exists kubectl && kubectl get nodes &>/dev/null; then
     log_warn "K3s is already installed, skipping..."
     export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
