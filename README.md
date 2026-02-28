@@ -66,13 +66,13 @@ sudo CLOUDFLARE_API_TOKEN=<your-token> ./run.sh --task <task-name>
 Run all tasks on a remote server over SSH (`--user` is required):
 
 ```bash
-CLOUDFLARE_API_TOKEN=<your-token> ./run.sh --server 192.168.1.10 --user ubuntu
+./run.sh --server 192.168.1.10 --user ubuntu
 ```
 
 Run a specific task remotely:
 
 ```bash
-CLOUDFLARE_API_TOKEN=<your-token> ./run.sh --server 192.168.1.10 --user ubuntu --task argocd
+./run.sh --server 192.168.1.10 --user ubuntu --task argocd
 ```
 
 In remote mode, k3s is installed on the target server over SSH. The kubeconfig is fetched from the remote server and patched to use the server's IP, so all subsequent `helm` and `kubectl` commands run locally against the remote cluster.
