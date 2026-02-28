@@ -81,14 +81,13 @@ preflight_checks() {
 
 # ============== REMOTE KUBECONFIG ==============
 setup_remote_kubeconfig() {
-    local tmpkube
-    tmpkube=$(mktemp /tmp/argocd-kubeconfig-XXXXXX)
+    mkdir -p "$(dirname "${LOCAL_KUBECONFIG}")"
     ssh "${SERVER_USER}@${SERVER_IP}" 'sudo cat /etc/rancher/k3s/k3s.yaml' \
         | sed "s|https://127.0.0.1:6443|https://${SERVER_IP}:6443|g" \
-        > "$tmpkube"
-    chmod 600 "$tmpkube"
-    export KUBECONFIG="$tmpkube"
-    log_info "Remote kubeconfig saved to $tmpkube"
+        > "${LOCAL_KUBECONFIG}"
+    chmod 600 "${LOCAL_KUBECONFIG}"
+    export KUBECONFIG="${LOCAL_KUBECONFIG}"
+    log_info "Remote kubeconfig saved to ${LOCAL_KUBECONFIG}"
 }
 
 # ============== MAIN ==============

@@ -12,13 +12,13 @@ if [[ -n "${SERVER_IP:-}" ]]; then
         log_success "K3s installed on ${SERVER_IP}"
     fi
     # Fetch and patch kubeconfig for local use
-    tmpkube=$(mktemp /tmp/argocd-kubeconfig-XXXXXX)
+    mkdir -p "$(dirname "${LOCAL_KUBECONFIG}")"
     ssh "${SERVER_USER}@${SERVER_IP}" 'sudo cat /etc/rancher/k3s/k3s.yaml' \
         | sed "s|https://127.0.0.1:6443|https://${SERVER_IP}:6443|g" \
-        > "$tmpkube"
-    chmod 600 "$tmpkube"
-    export KUBECONFIG="$tmpkube"
-    log_info "Remote kubeconfig saved to $tmpkube"
+        > "${LOCAL_KUBECONFIG}"
+    chmod 600 "${LOCAL_KUBECONFIG}"
+    export KUBECONFIG="${LOCAL_KUBECONFIG}"
+    log_info "Remote kubeconfig saved to ${LOCAL_KUBECONFIG}"
     return 0
 fi
 
@@ -42,13 +42,13 @@ SUDO_USER_HOME=$(getent passwd "${SUDO_USER:-root}" | cut -d: -f6)
 KUBE_DIR="$SUDO_USER_HOME/.kube"
 
 mkdir -p "$KUBE_DIR"
-cp /etc/rancher/k3s/k3s.yaml "$KUBE_DIR/config"
+cp /etc/rancher/k3s/k3s.yaml "$KUBE_DIR/k3s"
 
 if [[ -n "${SUDO_USER:-}" ]]; then
     chown -R "$SUDO_USER:$SUDO_USER" "$KUBE_DIR"
 fi
 
-chmod 600 "$KUBE_DIR/config"
+chmod 600 "$KUBE_DIR/k3s"
 export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
 
 log_success "K3s installed"
